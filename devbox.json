@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.6/.schema/devbox.schema.json",
+  "packages": [
+    "go@1.25",
+    "skaffold@latest",
+    "git@latest",
+    "golangci-lint@latest",
+    "lefthook@latest",
+    "minikube@latest",
+    "kustomize@latest",
+    "kubectl@latest",
+    "k9s@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "echo 'Welcome to devbox!' > /dev/null"
+    ],
+    "scripts": {
+      "test": [
+        "echo \"Error: no test specified\" && exit 1"
+      ]
+    }
+  }
+}

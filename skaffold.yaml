@@ -1,0 +1,26 @@
+apiVersion: skaffold/v4beta1
+kind: Config
+metadata:
+  name: microservice-playground
+build:
+  artifacts:
+    - image: microservice-playground/web
+      context: web
+      docker:
+        dockerfile: Dockerfile
+    - image: microservice-playground/order-service
+      context: services
+      docker:
+        dockerfile: order-service.Dockerfile
+    - image: microservice-playground/products-service
+      context: services
+      docker:
+        dockerfile: products-service.Dockerfile
+    - image: microservice-playground/warehouse
+      context: services
+      docker:
+        dockerfile: warehouse.Dockerfile
+manifests:
+  kustomize:
+    paths:
+      - ./infra/k8s

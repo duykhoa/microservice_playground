@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-ingress
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.3
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-ingress-configmap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-ingress-configmap
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 80;
+        location /products {
+          proxy_pass http://products-service;
+        }
+        location /orders {
+          proxy_pass http://order-service;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-ingress
+spec:
+  selector:
+    app: nginx-ingress
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
