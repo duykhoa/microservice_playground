@@ -18,6 +18,17 @@ func main() {
 	common.FailOnError(err, "Failed to open a channel")
 	defer ch.Close()
 
+	err = ch.ExchangeDeclare(
+		"wms",    // name
+		"direct", // type
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	common.FailOnError(err, "Failed to declare an exchange")
+
 	q, err := ch.QueueDeclare(
 		"orders", // name
 		false,    // durable
@@ -27,6 +38,15 @@ func main() {
 		nil,      // arguments
 	)
 	common.FailOnError(err, "Failed to declare a queue")
+
+	err = ch.QueueBind(
+		q.Name, // queue name
+		"orders", // routing key
+		"wms", // exchange
+		false,
+		nil,
+	)
+	common.FailOnError(err, "Failed to bind a queue")
 
 	msgs, err := ch.Consume(
 		q.Name, // queue

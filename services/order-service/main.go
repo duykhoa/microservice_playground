@@ -62,7 +62,7 @@ func main() {
 		defer cancel()
 
 		err = ch.PublishWithContext(ctx,
-			"",     // exchange
+			"wms",  // exchange
 			q.Name, // routing key
 			false,  // mandatory
 			false,  // immediate
