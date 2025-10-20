@@ -4,7 +4,7 @@
 
 This project is a simple microservice application that demonstrates a basic e-commerce system. It consists of:
 
-- A web frontend built with Vue.js and served by Nginx.
+- A `web` frontend built with Vue.js and served by Nginx.
 - A `products-service` written in Go.
 - An `order-service` written in Go, which uses RabbitMQ for messaging.
 - A `warehouse` service written in Go.
@@ -18,7 +18,6 @@ Before you begin, ensure you have the following installed:
 - [Devbox](https://www.jetpack.io/devbox/)
 - [Docker](https://www.docker.com/)
 - [Make](https://www.gnu.org/software/make/)
-- [Minikube](https://minikube.sigs.k8s.io/docs/start/)
 
 ## Getting Started
 
@@ -35,7 +34,11 @@ Before you begin, ensure you have the following installed:
     Once inside the Devbox shell, you can build the Docker images and deploy all the services to your Kubernetes cluster using the following command:
 
     ```bash
-    make dev
+    # watch mode
+    make dev (or make skaffold-dev)
+
+    # run mode
+    make run
     ```
 
     This command uses Skaffold to manage the build and deployment process.
