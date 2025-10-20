@@ -103,7 +103,7 @@ func main() {
 			if err != nil {
 				log.Printf("Failed to publish reply: %s", err)
 			} else {
-				log.Printf("Replied with canFulfill: %v", canFulfill)
+				log.Printf("Replied with canFulfill: %v, event: %v", canFulfill, response)
 			}
 		}
 	}()
