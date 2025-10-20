@@ -3,8 +3,6 @@ kind: Config
 metadata:
   name: microservice-playground
 build:
-  cache:
-    enabled: true
   artifacts:
     - image: microservice-playground/web
       context: web

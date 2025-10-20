@@ -28,6 +28,11 @@ dev: start-cluster ## Run the application using skaffold
 	@echo "Starting the application with skaffold for development..."
 	@skaffold dev
 
+.PHONY: skaffold-dev
+skaffold-dev:
+	@echo "Starting the application in development mode without calling start-cluster..."
+	@skaffold dev
+
 .PHONY: run
 run: start-cluster ## Run the application using skaffold
 	@echo "Starting the application with skaffold..."
