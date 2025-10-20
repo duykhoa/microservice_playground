@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"microservice-playground/services/internal/common"
@@ -15,33 +14,10 @@ import (
 	"github.com/rabbitmq/amqp091-go"
 )
 
-// A map to store response channels, keyed by correlationID
-var (
-	responseChannels = make(map[string]chan common.FulfillmentResponse)
-	mapMutex         = &sync.Mutex{}
-)
-
 func main() {
 	conn, err := amqp091.Dial("amqp://guest:guest@rabbitmq:5672/")
 	common.FailOnError(err, "Failed to connect to RabbitMQ")
 	defer conn.Close()
-
-	ch, err := conn.Channel()
-	common.FailOnError(err, "Failed to open a channel")
-	defer ch.Close()
-
-	replyQueue, err := ch.QueueDeclare(
-		"",    // name (amqp-assigned)
-		false, // durable
-		true,  // delete when unused
-		true,  // exclusive
-		false, // no-wait
-		nil,   // arguments
-	)
-	common.FailOnError(err, "Failed to declare a reply queue")
-
-	// Start a single consumer for the reply queue
-	go consumeReplies(ch, replyQueue.Name)
 
 	http.HandleFunc("/orders", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -57,18 +33,44 @@ func main() {
 
 		log.Printf("Received order: %+v", order)
 
+		ch, err := conn.Channel()
+		if err != nil {
+			log.Printf("Failed to open a channel: %s", err)
+			http.Error(w, "Failed to open a channel", http.StatusInternalServerError)
+			return
+		}
+		defer ch.Close()
+
+		replyQueue, err := ch.QueueDeclare(
+			"",    // name (amqp-assigned)
+			false, // durable
+			true,  // delete when unused
+			true,  // exclusive
+			false, // no-wait
+			nil,   // arguments
+		)
+		if err != nil {
+			log.Printf("Failed to declare a reply queue: %s", err)
+			http.Error(w, "Failed to declare a reply queue", http.StatusInternalServerError)
+			return
+		}
+
+		msgs, err := ch.Consume(
+			replyQueue.Name, // queue
+			"",              // consumer
+			true,            // auto-ack
+			false,           // exclusive
+			false,           // no-local
+			false,           // no-wait
+			nil,             // args
+		)
+		if err != nil {
+			log.Printf("Failed to register a consumer: %s", err)
+			http.Error(w, "Failed to register a consumer", http.StatusInternalServerError)
+			return
+		}
+
 		correlationID := uuid.New().String()
-		responseChan := make(chan common.FulfillmentResponse)
-
-		mapMutex.Lock()
-		responseChannels[correlationID] = responseChan
-		mapMutex.Unlock()
-
-		defer func() {
-			mapMutex.Lock()
-			delete(responseChannels, correlationID)
-			mapMutex.Unlock()
-		}()
 
 		event := common.CreateFulfillmentEvent{
 			CorrelationID: correlationID,
@@ -77,9 +79,13 @@ func main() {
 		}
 
 		body, err := json.Marshal(event)
-		common.FailOnError(err, "Failed to marshal event")
+		if err != nil {
+			log.Printf("Failed to marshal event: %s", err)
+			http.Error(w, "Failed to marshal event", http.StatusInternalServerError)
+			return
+		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
 		err = ch.PublishWithContext(ctx,
@@ -93,52 +99,46 @@ func main() {
 				ReplyTo:       replyQueue.Name,
 				Body:          body,
 			})
-		common.FailOnError(err, "Failed to publish a message")
+		if err != nil {
+			log.Printf("Failed to publish a message: %s", err)
+			http.Error(w, "Failed to publish a message", http.StatusInternalServerError)
+			return
+		}
 
-		select {
-		case response := <-responseChan:
-			if response.CanFulfillOrder {
-				log.Printf("Order can be fulfilled.")
-				w.WriteHeader(http.StatusCreated)
-			} else {
-				log.Printf("Order cannot be fulfilled.")
-				w.WriteHeader(http.StatusUnprocessableEntity)
+		// Loop with a timeout to find our message. Although the queue is exclusive
+		// and we should only get one message, this makes the handler more robust.
+		for {
+			select {
+			case d := <-msgs:
+				// Check if the message is the one we're waiting for
+				if d.CorrelationId == correlationID {
+					var response common.FulfillmentResponse
+					if err := json.Unmarshal(d.Body, &response); err != nil {
+						log.Printf("Error decoding response: %s", err)
+						http.Error(w, "Error decoding response", http.StatusInternalServerError)
+					} else {
+						if response.CanFulfillOrder {
+							log.Printf("Order can be fulfilled.")
+							w.WriteHeader(http.StatusCreated)
+						} else {
+							log.Printf("Order cannot be fulfilled.")
+							w.WriteHeader(http.StatusUnprocessableEntity)
+						}
+					}
+					// Our work is done, so we can return from the handler.
+					return
+				} else {
+					log.Printf("Received message with wrong correlation ID on exclusive queue. Expected %s, got %s. Discarding.", correlationID, d.CorrelationId)
+					// This is unexpected, but we'll loop again to wait for the correct message
+				}
+			case <-ctx.Done():
+				// The request context timed out
+				log.Printf("Request timed out.")
+				w.WriteHeader(http.StatusRequestTimeout)
+				return
 			}
-		case <-ctx.Done():
-			log.Printf("Request timed out.")
-			w.WriteHeader(http.StatusRequestTimeout)
 		}
 	})
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
-}
-
-func consumeReplies(ch *amqp091.Channel, queueName string) {
-	msgs, err := ch.Consume(
-		queueName, // queue
-		"",        // consumer
-		true,      // auto-ack
-		false,     // exclusive
-		false,     // no-local
-		false,     // no-wait
-		nil,       // args
-	)
-	common.FailOnError(err, "Failed to register a consumer")
-
-	for d := range msgs {
-		mapMutex.Lock()
-		responseChan, ok := responseChannels[d.CorrelationId]
-		mapMutex.Unlock()
-
-		if ok {
-			var response common.FulfillmentResponse
-			if err := json.Unmarshal(d.Body, &response); err != nil {
-				log.Printf("Error decoding response: %s", err)
-			} else {
-				responseChan <- response
-			}
-		} else {
-			log.Printf("Received message with unknown correlation ID: %s", d.CorrelationId)
-		}
-	}
 }
